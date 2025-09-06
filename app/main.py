@@ -25,9 +25,6 @@ class ChallengeResult(BaseModel):
 def get_health():
     return {"status": "ok"}
 
-from datasets import load_dataset
-from itertools import islice
-
 @app.get("/challenge/next")
 def get_next_challenge():
     ds = load_dataset("glaiveai/glaive-code-assistant", split="train", streaming=True)
@@ -37,14 +34,14 @@ def get_next_challenge():
         "id": f"glaive-{index}",
         "prompt": sample["question"]
     }
-    
+
 @app.get("/challenge/answer")
 def get_challenge_answer(id: str = Query(...)):
     index = int(id.replace("glaive-", ""))
     ds = load_dataset("glaiveai/glaive-code-assistant", split="train", streaming=True)
     sample = next(islice(ds, index, None))
     return {"answer": sample["answer"]}
-    
+
 @app.post("/challenge/submit")
 def post_challenge_results(payload: ChallengeResult):
     record = {
@@ -70,4 +67,3 @@ def get_challenge_results(
     if limit:
         q = q.limit(limit)
     return q.execute().data
-
