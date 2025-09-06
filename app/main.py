@@ -17,6 +17,33 @@ app = FastAPI()
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+    
+@app.get("/debug/embeddings")
+def dump_embeddings():
+    profiles = (
+        sb.table("coder_memory")
+        .select("id, profile_rank, facets, weights_delta")
+        .eq("record_type", "PROFILE")
+        .execute()
+        .data
+    )
+
+    def to_vector(d):
+        vec = [0.0] * 384
+        for k, v in d.items():
+            vec[int(k)] = float(v)
+        return vec
+
+    return [
+        {
+            "id": p["id"],
+            "facets": p["facets"],
+            "profile_rank": p["profile_rank"],
+            "vector": to_vector(p["weights_delta"]),
+        }
+        for p in profiles if p.get("weights_delta")
+    ]
+
 
 # === Compose Weights ===
 class ComposeRequest(BaseModel):
@@ -47,3 +74,4 @@ def record_preference(preferred_id: str = Body(...), other_id: str = Body(...)):
     }).match({"id": preferred_id}).execute()
 
     return {"status": "recorded", "preferred_id": preferred_id}
+
