@@ -56,22 +56,25 @@ def compose_route(req: ComposeRequest):
     return compose_weights(req)
 
 # === Feedback API ===
+from datetime import datetime
+
 @app.post("/feedback/preference")
 def record_preference(preferred_id: str = Body(...), other_id: str = Body(...)):
-    # Fetch preferred profile
+    # Fetch preferred profile to validate it exists
     preferred = sb.table("coder_memory").select("*").eq("id", preferred_id).execute().data
     if not preferred:
         return {"error": "Preferred ID not found"}
-    preferred = preferred[0]
+    
+    # Log feedback
+    sb.table("feedback").insert({
+        "preferred_id": preferred_id,
+        "other_id": other_id,
+        "timestamp": datetime.utcnow().isoformat()
+    }).execute()
 
-    # Update preference score
-    metrics = preferred.get("metrics", {})
-    new_score = metrics.get("preference_score", 0) + 1
-    updated_metrics = {**metrics, "preference_score": new_score}
+    return {
+        "status": "recorded",
+        "preferred_id": preferred_id
+    }
 
-    sb.table("coder_memory").update({
-        "metrics": updated_metrics
-    }).match({"id": preferred_id}).execute()
-
-    return {"status": "recorded", "preferred_id": preferred_id}
 
