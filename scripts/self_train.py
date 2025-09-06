@@ -10,15 +10,16 @@ from openai import OpenAI
 
 client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
+openai.api_key = os.getenv("OPENAI_API_KEY")
+
 def generate_solution(prompt: str) -> str:
-    resp = client.completions.create(
-        engine="gpt-4",       # or whichever model you're using
-        prompt=prompt,
-        max_tokens=256,
-        temperature=0.2,
-        stop=None
+    response = openai.ChatCompletion.create(
+        model="gpt-4",
+        messages=[{"role": "user", "content": prompt}],
+        max_tokens=512,
+        temperature=0.3,
     )
-    return resp.choices[0].text
+    return response.choices[0].message["content"]
     
 load_dotenv()
 sb = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY"))
@@ -51,7 +52,7 @@ def run_one_step():
     test_code = chosen["generator_spec"]["test"]
 
     # TODO: Replace with model-generated code
-    solution = "# placeholder: solution for prompt\npass"
+    solution = generate_solution(chosen["generator_spec"]["prompt"])
 
     # Run verifier
     result = verify_run(solution, test_code)
