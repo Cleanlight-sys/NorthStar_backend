@@ -3,6 +3,8 @@ from pydantic import BaseModel
 from typing import List
 import os
 from dotenv import load_dotenv
+from app.memory import extract_facet_graph, get_related_facets
+
 
 load_dotenv()
 
@@ -42,6 +44,7 @@ def compose_weights(request: ComposeRequest):
     # Normalize if needed
     normed = [round(x / len(profiles), 6) for x in result]
     return {"weights": normed, "source": "supabase_profiles"}
+
 # =======
 from supabase import create_client
 from pydantic import BaseModel
