@@ -76,5 +76,40 @@ def record_preference(preferred_id: str = Body(...), other_id: str = Body(...)):
         "status": "recorded",
         "preferred_id": preferred_id
     }
+from fastapi import Body
+from datetime import datetime
+from uuid import uuid4
+
+@app.post("/challenge/results")
+def post_challenge_results(
+    challenge_id: str = Body(...),
+    prompt: str = Body(...),
+    solution: str = Body(...),
+    result: dict = Body(...),
+    profile_snapshot: dict = Body(None)
+):
+    # Construct the record to store in `coder_memory` as a new row
+    new_id = str(uuid4())
+    timestamp = datetime.utcnow().isoformat()
+
+    record = {
+        "id": new_id,
+        "ts": timestamp,
+        "record_type": "CHALLENGE",
+        "challenge_id": challenge_id,
+        "prompt": prompt,
+        "solution": solution,
+        "result": result,
+        "profile_snapshot": profile_snapshot,
+    }
+
+    sb.table("coder_memory").insert(record).execute()
+
+    return {
+        "status": "recorded",
+        "challenge_id": challenge_id,
+        "record_id": new_id
+    }
+
 
 
