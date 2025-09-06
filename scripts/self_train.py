@@ -6,7 +6,20 @@ from dotenv import load_dotenv
 import os
 import random
 import datetime
+from openai import OpenAI
 
+client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+def generate_solution(prompt: str) -> str:
+    resp = client.completions.create(
+        engine="gpt-4",       # or whichever model you're using
+        prompt=prompt,
+        max_tokens=256,
+        temperature=0.2,
+        stop=None
+    )
+    return resp.choices[0].text
+    
 load_dotenv()
 sb = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY"))
 
