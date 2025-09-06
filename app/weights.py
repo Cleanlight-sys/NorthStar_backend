@@ -1,23 +1,44 @@
-from supabase.client import supabase
-import numpy as np
+from supabase import create_client
+from pydantic import BaseModel
+from typing import List
+import os
+from dotenv import load_dotenv
 
-def compose_weights(problem_type_hash: str, facets: list, top_k: int = 5):
-    response = supabase.table("coder_memory") \
-        .select("weights_delta") \
-        .eq("record_type", "PROFILE") \
-        .eq("problem_type_hash", problem_type_hash) \
-        .order("profile_rank", desc=False) \
-        .limit(top_k) \
+load_dotenv()
+
+SUPABASE_URL = os.getenv("SUPABASE_URL")
+SUPABASE_KEY = os.getenv("SUPABASE_SERVICE_KEY")
+supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
+
+VECTOR_DIM = 384  # match your DB schema
+
+class ComposeRequest(BaseModel):
+    problem_type_hash: str
+    facets: List[str]
+    top_k: int = 3
+
+def compose_weights(request: ComposeRequest):
+    response = (
+        supabase.table("coder_memory")
+        .select("*")
+        .eq("record_type", "PROFILE")
+        .eq("problem_type_hash", request.problem_type_hash)
+        .order("profile_rank", desc=False)
+        .limit(request.top_k)
         .execute()
+    )
 
-    deltas = []
-    for row in response.data:
-        delta = row["weights_delta"]
-        if delta:
-            deltas.append(np.array([delta[str(i)] for i in range(60)]))
+    profiles = response.data
 
-    if not deltas:
-        return {"weights": [0.0] * 60, "source": "empty_top_k"}
+    if not profiles:
+        return {"weights": [0.0] * VECTOR_DIM, "source": "empty_fallback"}
 
-    mean_weights = np.mean(deltas, axis=0)
-    return {"weights": mean_weights.tolist(), "source": f"top_{top_k}_blend"}
+    result = [0.0] * VECTOR_DIM
+    for profile in profiles:
+        delta = profile.get("weights_delta", {})
+        for k, v in delta.items():
+            result[int(k)] += float(v)
+
+    # Normalize if needed
+    normed = [round(x / len(profiles), 6) for x in result]
+    return {"weights": normed, "source": "supabase_profiles"}
