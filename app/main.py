@@ -1,115 +1,70 @@
-from fastapi import FastAPI, Body
+from fastapi import FastAPI, Query, Body
 from pydantic import BaseModel
-from typing import List, Optional
-from app.weights import compose_weights
+from typing import Optional, List, Dict
 from supabase import create_client
-import os
 from dotenv import load_dotenv
+from datetime import datetime
+import os
+import random
 
-# Load environment + connect Supabase
 load_dotenv()
 sb = create_client(os.getenv("SUPABASE_URL"), os.getenv("SUPABASE_SERVICE_KEY"))
 
-# FastAPI app
 app = FastAPI()
 
-# Health check
+# Models
+class ChallengeResult(BaseModel):
+    challenge_id: str
+    prompt: str
+    solution: str
+    result: Dict[str, Optional[str]]
+    profile_snapshot: Optional[dict] = None
+
+# Routes
 @app.get("/health")
-def health_check():
+def get_health():
     return {"status": "ok"}
-    
-@app.get("/debug/embeddings")
-def dump_embeddings():
-    profiles = (
-        sb.table("coder_memory")
-        .select("id, profile_rank, facets, weights_delta")
-        .eq("record_type", "PROFILE")
-        .execute()
-        .data
-    )
 
-    def to_vector(d):
-        vec = [0.0] * 384
-        for k, v in d.items():
-            vec[int(k)] = float(v)
-        return vec
-
-    return [
-        {
-            "id": p["id"],
-            "facets": p["facets"],
-            "profile_rank": p["profile_rank"],
-            "vector": to_vector(p["weights_delta"]),
-        }
-        for p in profiles if p.get("weights_delta")
-    ]
-
-
-# === Compose Weights ===
-class ComposeRequest(BaseModel):
-    problem_type_hash: str
-    facets: Optional[List[str]] = None
-    top_k: int = 5
-
-@app.post("/compose_weights")
-def compose_route(req: ComposeRequest):
-    return compose_weights(req)
-
-# === Feedback API ===
-from datetime import datetime
-
-@app.post("/feedback/preference")
-def record_preference(preferred_id: str = Body(...), other_id: str = Body(...)):
-    # Fetch preferred profile to validate it exists
-    preferred = sb.table("coder_memory").select("*").eq("id", preferred_id).execute().data
-    if not preferred:
-        return {"error": "Preferred ID not found"}
-    
-    # Log feedback
-    sb.table("feedback").insert({
-        "preferred_id": preferred_id,
-        "other_id": other_id,
-        "timestamp": datetime.utcnow().isoformat()
-    }).execute()
-
+@app.get("/challenge/next")
+def get_next_challenge():
+    challenges = sb.table("coder_memory").select("*").eq("record_type", "CHALLENGE").execute().data
+    if not challenges:
+        return {"error": "No challenges found"}
+    sample = random.choice(challenges)
     return {
-        "status": "recorded",
-        "preferred_id": preferred_id
+        "id": sample["id"],
+        "prompt": sample.get("prompt") or sample.get("generator_spec", {}).get("prompt")
     }
-from fastapi import Body
-from datetime import datetime
-from uuid import uuid4
 
-@app.post("/challenge/results")
-def post_challenge_results(
-    challenge_id: str = Body(...),
-    prompt: str = Body(...),
-    solution: str = Body(...),
-    result: dict = Body(...),
-    profile_snapshot: dict = Body(None)
-):
-    # Construct the record to store in `coder_memory` as a new row
-    new_id = str(uuid4())
-    timestamp = datetime.utcnow().isoformat()
+@app.get("/challenge/answer")
+def get_challenge_answer(id: str = Query(...)):
+    row = sb.table("coder_memory").select("*").eq("id", id).single().execute().data
+    if not row:
+        return {"error": "Challenge not found"}
+    return {"answer": row.get("answer") or row.get("generator_spec", {}).get("answer")}
 
+@app.post("/challenge/submit")
+def post_challenge_results(payload: ChallengeResult):
     record = {
-        "id": new_id,
-        "ts": timestamp,
-        "record_type": "CHALLENGE",
-        "challenge_id": challenge_id,
-        "prompt": prompt,
-        "solution": solution,
-        "result": result,
-        "profile_snapshot": profile_snapshot,
+        "id": f"run_{datetime.utcnow().isoformat()}",
+        "ts": datetime.utcnow().isoformat(),
+        "record_type": "RUN",
+        **payload.dict()
     }
-
     sb.table("coder_memory").insert(record).execute()
+    return {"status": "recorded", "challenge_id": payload.challenge_id}
 
-    return {
-        "status": "recorded",
-        "challenge_id": challenge_id,
-        "record_id": new_id
-    }
-
-
-
+@app.get("/challenge/results")
+def get_challenge_results(
+    sort_by: Optional[str] = Query(None),
+    limit: Optional[int] = Query(50),
+    profile_id: Optional[str] = Query(None)
+):
+    q = sb.table("coder_memory").select("*").eq("record_type", "RUN")
+    if profile_id:
+        q = q.eq("profile_snapshot->>id", profile_id)
+    if sort_by:
+        q = q.order(sort_by, desc=True)
+    if limit:
+        q = q.limit(limit)
+    return q.execute().data
